@@ -149,7 +149,7 @@ async fn database_handler(mut rx_db: mpsc::Receiver<(Request, String, mpsc::Send
                             }
                         }
                         -1 => {
-                            println!{"Error: Theoretically unreachable branch reached.\nttl = -1\n\n"};
+                            eprintln!{"Error: Theoretically unreachable branch reached.\nttl = -1\n\n"};
                         }
                         _ => {
                         }
@@ -227,13 +227,13 @@ async fn connection_handler(mut framed_socket: Framed<TcpStream, LinesCodec>, tx
 
 async fn framed_read<T: Serialize + for<'a> Deserialize<'a>>(framed_socket: &mut Framed<TcpStream, LinesCodec>) -> T {
     let msg = framed_socket.next().await.expect("User disconnected.").unwrap();
-    println!("read: {msg}");
+    //println!("read: {msg}");
     serde_json::from_str(&msg).unwrap()
 }
 
 async fn framed_write<T: Serialize + for<'a>Deserialize<'a>>(framed_socket: &mut Framed<TcpStream, LinesCodec>, msg: &T) {
     let msg_json = serde_json::to_string(&msg).unwrap();
-    println!("write: {}", msg_json);
+    //println!("write: {}", msg_json);
     framed_socket.send(msg_json).await.unwrap();
 }
 

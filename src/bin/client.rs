@@ -159,8 +159,8 @@ impl Twottr {
 						Ok(reg_res) => {
 							self.state = State::LoginScreen;
 						}
-						Err(_) => {
-							/************************/
+						Err(e) => {
+							self.error = Some(e);
 						}
 					}
 				}
