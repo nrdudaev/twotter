@@ -12,10 +12,14 @@ use chrono::{DateTime, Utc};
 use futures::StreamExt;
 use tokio_util::codec::{LinesCodec, Encoder, Decoder};
 use iced::{
-	widget::{column, container, checkbox, Container, Column, text, text_input, button},
+	widget::{column, Column, row, Row, container, Container, scrollable, checkbox, Text, text, text_input, button},
 	Fill,
 	Alignment,
 	Element,
+	Pixels,
+	Color,
+	Font,
+	Length,
 };
 use serde::{Serialize, Deserialize};
 use bytes::BytesMut;
@@ -25,6 +29,9 @@ enum State {
 	LoginScreen,
 	RegistrationScreen,
 	Main,
+	Users,
+	MyPage,
+	Page(String),
 }
 
 impl Default for State {
@@ -53,9 +60,10 @@ struct Twottr {
 	search_textbox: String,
 	page: Vec<(String, String, f64)>,
 	num_of_pages: usize,
-	current_page: usize,
+	current_page_num: usize,
 
-	subscription_list: String,
+	subscription_list: Vec<String>,
+	user_list: Vec<String>,
 
 	error: Option<TwotterError>,
 }
@@ -116,10 +124,12 @@ impl Twottr {
 						Ok(Response) => {
 							self.state = State::Main;
 							self.login_status = Some(self.login_textbox.clone());
+							self.login_textbox.clear();
+							self.password_textbox.clear();
 							self.error = None;
+
 							self.write(&Request::SubscriptionList);
-							let subscription_list_result: Result<Response, TwotterError> = self.read().unwrap();
-							match subscription_list_result {
+							match self.read().unwrap() {
 								Ok(list_response) => {
 									if let Response::SubscriptionList(list) = list_response {
 										self.subscription_list = list;
@@ -129,11 +139,30 @@ impl Twottr {
 									self.error = Some(e);
 								}
 							}
-							// self.get_feed(0);
+
 							self.write(&Request::Feed(0));
-							if let Ok(Response::Page(page_vec, num_of_pages)) = self.read().unwrap() {
-								self.page = page_vec;
-								self.num_of_pages = num_of_pages;
+							match self.read().unwrap() {
+								Ok(feed_response) => {
+									if let Response::Page(page, num_of_pages) = feed_response {
+										self.page = page;
+										self.num_of_pages = num_of_pages;
+									}
+								}
+								Err(e) => {
+									self.error = Some(e);
+								}
+							}
+
+							self.write(&Request::UserList);
+							match self.read().unwrap() {
+								Ok(user_list_response) => {
+									if let Response::UserList(user_list) = user_list_response {
+										self.user_list = user_list;
+									}
+								}
+								Err(e) => {
+									self.error = Some(e);
+								}
 							}
 						}
 						Err(e) => {
@@ -158,6 +187,9 @@ impl Twottr {
 					match registration_result {
 						Ok(reg_res) => {
 							self.state = State::LoginScreen;
+							self.login_textbox.clear();
+							self.password_textbox.clear();
+							self.password_conf_textbox.clear();
 						}
 						Err(e) => {
 							self.error = Some(e);
@@ -165,11 +197,44 @@ impl Twottr {
 					}
 				}
 			}
+			Message::LogOut => {
+				self.write(&Request::LogOut);
+				match self.read().unwrap() {
+					Ok(response) => {
+						self.login_status = None;
+						self.incomplete_frame = Some(BytesMut::new());
+						self.page.clear();
+						self.state = State::LoginScreen;
+					}
+					Err(e) => {
+						self.error = Some(e);
+					}
+				}
+			}
 			Message::TwottChanged(twott_typed) => {
 				self.twott_textbox = twott_typed;
 			}
 			Message::TwottSubmitted => {
-				self.write(&Request::Post(self.twott_textbox.clone()));
+				if self.twott_textbox.len() != 0 {
+					self.write(&Request::Post(self.twott_textbox.clone()));
+					if let Err(e) = self.read().unwrap() {
+						self.error = Some(e);
+					} else {
+						self.twott_textbox.clear();
+						self.write(&Request::Page(self.login_status.clone().unwrap(), self.current_page_num));
+						match self.read().unwrap() {
+							Ok(page_response) => {
+								if let Response::Page(page, num_of_pages) = page_response {
+									self.page = page;
+									self.num_of_pages = num_of_pages;
+								}
+							}
+							Err(e) => {
+								self.error = Some(e);
+							}
+						}
+					}
+				}
 			}
 			Message::SearchChanged(search_typed) => {
 
@@ -183,91 +248,257 @@ impl Twottr {
 			Message::Subscribe(name) => {
 				self.write(&Request::Subscribe(name));
 			}
+			Message::RefreshUsers => {
+				self.write(&Request::UserList);
+				match self.read().unwrap() {
+					Ok(user_list_response) => {
+						if let Response::UserList(user_list) = user_list_response {
+							self.user_list = user_list;
+						}
+					}
+					Err(e) => {
+						self.error = Some(e);
+					}
+				}
+			}
+
+			Message::Feed => {
+				self.write(&Request::Feed(0));
+				match self.read().unwrap() {
+					Ok(feed_response) => {
+						if let Response::Page(page, num_of_pages) = feed_response {
+							self.page = page;
+							self.num_of_pages = num_of_pages;
+							self.state = State::Main;
+						}
+					}
+					Err(e) => {
+						self.error = Some(e);
+					}
+				}
+			}
+			Message::MyPage(current_page_num) => {
+				self.write(&Request::Page(self.login_status.clone().unwrap(), 0));
+				match self.read().unwrap() {
+					Ok(page_response) => {
+						if let Response::Page(page, num_of_pages) = page_response {
+							self.page = page;
+							self.num_of_pages = num_of_pages;
+							self.current_page_num = current_page_num;
+							self.state = State::MyPage;
+						}
+					}
+					Err(e) => {
+						self.error = Some(e);
+					}
+				}
+			}
+			Message::Page(name, current_page_num) => {
+				self.write(&Request::Page(name.clone(), current_page_num));
+				match self.read().unwrap() {
+					Ok(page_response) => {
+						if let Response::Page(page, num_of_pages) = page_response {
+							self.page = page;
+							self.num_of_pages = num_of_pages;
+							self.current_page_num = current_page_num;
+							self.state = State::Page(name.clone());
+						}
+					}
+					Err(e) => {
+						self.error = Some(e);
+					}
+				}
+			}
+			Message::Users => {
+				self.write(&Request::UserList);
+				match self.read().unwrap() {
+					Ok(user_list_response) => {
+						if let Response::UserList(user_list) = user_list_response {
+							self.user_list = user_list;
+							self.state = State::Users;
+						}
+					}
+					Err(e) => {
+						self.error = Some(e);
+					}
+				}
+			}
 		}
 	}
 
-	fn view(&self) -> Column<Message> {
-		let mut res = match self.state {
+	fn view(&self) -> Row<Message> {
+		let err = match &self.error {
+			Some(e) => {
+				container(
+					text(format!("Error: {}", e)).color(iced::color!(0xFF, 0x33, 0x33))
+				).padding(12)
+			}
+			None => {
+				container(text(""))
+			}
+		};
+
+		let menu: iced::widget::Column<'_, Message, iced::Theme, iced::Renderer> = column![
+			button("Feed")
+				.on_press(Message::Feed),
+			button("My Page")
+				.on_press(Message::MyPage(0)),
+			button("Users")
+				.on_press(Message::Users),
+			button("Log Out")
+				.on_press(Message::LogOut),
+		];
+
+		match &self.state {
 			State::Connection => {
-				column![
-					container(
-						column![
-							text_input("Server address", &self.address_textbox)
-								.on_input(Message::AddressChanged)
-								.on_submit(Message::AddressSubmitted)
-								.align_x(Alignment::Center)
-								.width(200)
-								.size(25),
-							container(
-								  button("Local").on_press(Message::LocalServer)
-							),
-						]
-					).center(Fill)
+				row![
+					column![
+						container(
+							column![
+								text_input("Server address", &self.address_textbox)
+									.on_input(Message::AddressChanged)
+									.on_submit(Message::AddressSubmitted)
+									.align_x(Alignment::Center)
+									.width(200)
+									.size(25),
+								container(
+									button("Local").on_press(Message::LocalServer)
+								),
+							]
+						).center(Fill),
+						err,
+					]
 				]
-			},
+			}
 			State::LoginScreen => {
-				column![
-					text_input("Login", &self.login_textbox)
-						.on_input(Message::LoginChanged)
-						.on_submit(Message::LoginRequestSubmitted),
-					text_input("Password", &self.password_textbox)
-						.on_input(Message::PasswordChanged)
-						.secure(!self.show_password)
-						.on_submit(Message::LoginRequestSubmitted),
-					checkbox(self.show_password)
-						.label("Show password")
-						.on_toggle(Message::ShowPassword),
-					button("Login")
-						.on_press(Message::LoginRequestSubmitted),
-					text(format!("If you don't have an account,\nregister first.\n")),
-					button("Registration")
-						.on_press(Message::Registration)
+				row![
+					column![
+						text_input("Login", &self.login_textbox)
+							.on_input(Message::LoginChanged)
+							.on_submit(Message::LoginRequestSubmitted),
+						text_input("Password", &self.password_textbox)
+							.on_input(Message::PasswordChanged)
+							.secure(!self.show_password)
+							.on_submit(Message::LoginRequestSubmitted),
+						checkbox(self.show_password)
+							.label("Show password")
+							.on_toggle(Message::ShowPassword),
+						button("Login")
+							.on_press(Message::LoginRequestSubmitted),
+						text(format!("If you don't have an account,\nregister first.\n")),
+						button("Registration")
+							.on_press(Message::Registration),
+						err
+					]
 				]
-			},
+			}
 			State::RegistrationScreen => {
-				column![
-					text_input("Login", &self.login_textbox)
-						.on_input(Message::LoginChanged)
-						.on_submit(Message::RegistrationRequestSubmitted),
-					text_input("Password", &self.password_textbox)
-						.on_input(Message::PasswordChanged)
-						.secure(!self.show_password)
-						.on_submit(Message::RegistrationRequestSubmitted),
-					text_input("Repeat the password", &self.password_conf_textbox)
-						.on_input(Message::PasswordConfirmationChanged)
-						.secure(!self.show_password)
-						.on_submit(Message::RegistrationRequestSubmitted),
-					checkbox(self.show_password)
-						.label("Show password")
-						.on_toggle(Message::ShowPassword),
-					button("Register")
-						.on_press(Message::RegistrationRequestSubmitted)
+				row![
+					column![
+						text_input("Login", &self.login_textbox)
+							.on_input(Message::LoginChanged)
+							.on_submit(Message::RegistrationRequestSubmitted),
+						text_input("Password", &self.password_textbox)
+							.on_input(Message::PasswordChanged)
+							.secure(!self.show_password)
+							.on_submit(Message::RegistrationRequestSubmitted),
+						text_input("Repeat the password", &self.password_conf_textbox)
+							.on_input(Message::PasswordConfirmationChanged)
+							.secure(!self.show_password)
+							.on_submit(Message::RegistrationRequestSubmitted),
+						checkbox(self.show_password)
+							.label("Show password")
+							.on_toggle(Message::ShowPassword),
+						button("Register")
+							.on_press(Message::RegistrationRequestSubmitted),
+						err
+					]
 				]
-			},
+			}
 			State::Main => {
-				let mut elements = vec![
-					text(format!("{}", self.login_status.clone().unwrap())).into()
+				let mut main_screen: Vec<Element<Message>> = vec![
+					text(format! ("News")).into(),
 				];
 
-				elements.extend(
+				main_screen.extend(
 					self.page.iter().map(|item| {
 						text(format!("{}\n{}\n{}", item.0, item.1, time_converter(item.2))).into()
 					})
 				);
 
-				Column::from_vec(elements).into()
-			},
-		};
+				let main_screen = Column::from_vec(main_screen);
 
-		if let Some(err) = &self.error {
-			res = res.push(
-				container(
-					text(format!("Error: {}", err)).color(iced::color!(0xFF, 0x33, 0x33))
-				).padding(12)
-			);
+				row![
+					menu,
+					main_screen,
+					err
+				]
+			}
+			State::Page(name) => {
+				let mut main_screen: Vec<Element<Message>> = vec![
+					text(format! ("{}", name)).into()
+				];
+
+				main_screen.extend(
+					self.page.iter().map(|item| {
+						text(format!("{}\n{}\n{}", item.0, item.1, time_converter(item.2))).into()
+					})
+				);
+
+				let name_plus_twotts = Column::from_vec(main_screen);
+
+				row![
+					menu,
+					column![
+						name_plus_twotts,
+						err
+					]
+				]
+			}
+			State::MyPage => {
+				let mut main_screen: Vec<Element<Message>> = vec![
+					text(format! ("{}", self.login_status.as_ref().unwrap())).into(),
+					text_input("Type your twott here:", &self.twott_textbox)
+						.on_input(Message::TwottChanged)
+						.on_submit(Message::TwottSubmitted).into(),
+					button("Post")
+						.on_press(Message::TwottSubmitted).into(),
+				];
+
+				main_screen.extend(
+					self.page.iter().map(|item| {
+						text(format!("{}\n{}\n{}", item.0, item.1, time_converter(item.2))).into()
+					})
+				);
+
+				let name_plus_twotts = Column::from_vec(main_screen);
+
+				row![
+					menu,
+					column![
+						name_plus_twotts,
+						err
+					]
+				]
+			}
+			State::Users => {
+				let mut users = column![];
+				for user in &self.user_list {
+					users = users.push(
+						button(user.as_str())
+							.on_press(Message::Page(user.clone(), 0))
+					);
+				}
+				row![
+					menu,
+					column![
+						scrollable(users)
+							.height(Length::Fill),
+						err
+					]
+				]
+			}
 		}
-
-		res.into()
 	}
 
 	fn read(&mut self) -> Result<Result<Response, TwotterError>, serde_json::Error> {
@@ -299,9 +530,18 @@ impl Twottr {
 	}
 
 	fn debugger(&mut self) {
-		self.subscription_list.push_str("debug1,");
+		self.subscription_list.push(String::from("debug1,"));
 	}
 }
+
+// fn custom_label<'a>(content: impl text::IntoFragment<'a>) -> Text<'a> {
+// 	text(content)
+// 		.size(Pixels(18.0))
+// 		.color(Color::from_rgb(0.2, 0.6, 0.3))
+// 		.font(Font::DEFAULT)
+// 		.width(iced::Length::Fill)
+// 		.center()
+// }
 /*
 fn twott_layout<'a>(container: Container<'a>) -> Container<'a> {
 	container.padding(Padding::from(15))
@@ -339,12 +579,19 @@ enum Message {
 	Registration,
 	RegistrationRequestSubmitted,
 	ShowPassword(bool),
+	LogOut,
 
 	TwottChanged(String),
 	TwottSubmitted,
 	SearchChanged(String),
 	SearchSubmitted,
 	Subscribe(String),
+	RefreshUsers,
+
+	Feed,
+	MyPage(usize),
+	Page(String, usize),
+	Users,
 }
 
 fn time_converter(time: f64) -> DateTime<Utc> {

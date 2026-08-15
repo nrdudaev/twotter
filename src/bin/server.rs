@@ -157,7 +157,7 @@ async fn database_handler(mut rx_db: mpsc::Receiver<(Request, String, mpsc::Send
                     let number_of_twott_in_the_feed = redis_connection.zcard(format!("temp-feed:{login_status}")).await.unwrap();
 
                     let beginning = std::cmp::min(page_num*TWOTTS_ON_A_PAGE, number_of_twott_in_the_feed);
-                    let end = std::cmp::min(page_num*TWOTTS_ON_A_PAGE + TWOTTS_ON_A_PAGE, number_of_twott_in_the_feed);
+                    let end = std::cmp::min(page_num*TWOTTS_ON_A_PAGE + TWOTTS_ON_A_PAGE - 1, number_of_twott_in_the_feed);
                     let unformatted_page: Vec<(String, f64)> = redis_connection.zrevrange_withscores(format!("temp-feed:{login_status}"), beginning as isize, end as isize).await.unwrap();
                     //let num_of_twotts = unformatted_page.len();
                     let num_of_pages = (number_of_twott_in_the_feed as f64 / TWOTTS_ON_A_PAGE as f64).ceil() as usize;
@@ -167,7 +167,25 @@ async fn database_handler(mut rx_db: mpsc::Receiver<(Request, String, mpsc::Send
                         (author, twott, item.1)
                     }).collect();
 
-                    tx_db.send((None, Ok(Response::Page(output_page, num_of_pages)))).await;
+                    tx_db.send(
+                        (None, Ok(Response::Page(output_page, num_of_pages)))
+                    ).await;
+                }
+                Request::Page(name, page_num) => {
+                    let number_of_twotts_by = redis_connection.zcard(format!("twotts-by:{}", name)).await.unwrap();
+                    let beginning = std::cmp::min(page_num*TWOTTS_ON_A_PAGE, number_of_twotts_by);
+                    let end = std::cmp::min(page_num*TWOTTS_ON_A_PAGE + TWOTTS_ON_A_PAGE - 1, number_of_twotts_by);
+                    let unformatted_page: Vec<(String, f64)> = redis_connection.zrevrange_withscores(format!("twotts-by:{}", name), beginning as isize, end as isize).await.unwrap();
+                    let num_of_pages = (number_of_twotts_by as f64 / TWOTTS_ON_A_PAGE as f64).ceil() as usize;
+
+                    let mut output_page: Vec<(String, String, f64)> = unformatted_page.iter().map(|item| {
+                        let (_, twott) = author_twott_parser(item.0.clone());
+                        (name.clone(),  twott, item.1)
+                    }).collect();
+
+                    tx_db.send(
+                        (None, Ok(Response::Page(output_page, num_of_pages)))
+                    ).await;
                 }
                 Request::Subscribe(name) => {
                     let _: () = redis_connection.lpush(format!("subscription-list:{login_status}"), name).await.unwrap();
@@ -175,19 +193,27 @@ async fn database_handler(mut rx_db: mpsc::Receiver<(Request, String, mpsc::Send
                 }
                 Request::SubscriptionList => {
                     let list: Vec<String> = redis_connection.lrange(format!("subscription_list:{login_status}"), 0, -1).await.unwrap();
-                    let mut output_list = String::new();
 
-                    for user in list {
-                        output_list.push_str(format!("{user},").as_str());
-                    }
-
-                    tx_db.send((None, Ok(Response::SubscriptionList(output_list.clone())))).await;
+                    tx_db.send((None, Ok(Response::SubscriptionList(list)))).await;
                 }
-                /*
-                Request::UserList {
-                    let
-                }*/
-                _ => { /*********************************TO HANDLE*/ }
+                Request::UserList => {
+                    let mut user_iter = redis_connection.scan_match("user:*").await.unwrap();
+                    let mut user_list: Vec<String> = vec![];
+                    while let Some(key_result) = user_iter.next().await {
+                        let mut key: String = key_result.unwrap();
+                        user_list.push(key.split_off("user:".len()));
+                    }
+                    println!("--------{:?}", user_list);
+                    tx_db.send((None, Ok(Response::UserList(user_list)))).await;
+                }
+                Request::LogOut => {
+                    tx_db.send(
+                          (None, Ok(Response::SuccessfulLogOut))
+                    ).await;
+                }
+                _ => {
+                    println!("Unaccounted for option");
+                }
             }
         }
     }
@@ -216,6 +242,11 @@ async fn connection_handler(mut framed_socket: Framed<TcpStream, LinesCodec>, tx
                     framed_write(&mut framed_socket, &response_result).await;
                 }
                 (_, response_result) = rx_con.recv().await.expect("Failed to receive from rx_con within a loop");
+                framed_write(&mut framed_socket, &response_result).await;
+            }
+            Ok(Response::SuccessfulLogOut) => {
+                login_status.clear();
+
                 framed_write(&mut framed_socket, &response_result).await;
             }
             _ => {
@@ -252,6 +283,85 @@ async fn debug_setup(con: &mut MultiplexedConnection) {
     }
 
     let _: () = con.lpush("subscription-list:aa", "debug1").await.unwrap();
+
+
+    let _: () = con
+        .hset(format!("user:bb"), "password", "bb")
+        .await
+        .expect(format!("Failed to HSET 'user:bb'").as_str());
+
+    for i in 0..5 {
+        let _: () = con.zadd(format!("twotts-by:bb"), format!("author:bb:twott:bb twott {i}"), timestamp())
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    }
+
+
+
+    let _: () = con
+        .hset(format!("user:cc"), "password", "bb")
+        .await
+        .expect(format!("Failed to HSET 'user:cc'").as_str());
+
+    for i in 0..5 {
+        let _: () = con.zadd(format!("twotts-by:cc"), format!("author:cc:twott:cc twott {i}"), timestamp())
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    }
+
+    // let _: () = con
+    //     .hset(format!("user:dd"), "password", "bb")
+    //     .await
+    //     .expect(format!("Failed to HSET 'user:dd'").as_str());
+    //
+    // for i in 0..5 {
+    //     let _: () = con.zadd(format!("twotts-by:dd"), format!("author:dd:twott:dd twott {i}"), timestamp())
+    //         .await
+    //         .unwrap();
+    //     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    // }
+    //
+    //
+    // let _: () = con
+    //     .hset(format!("user:ee"), "password", "bb")
+    //     .await
+    //     .expect(format!("Failed to HSET 'user:ee'").as_str());
+    //
+    // for i in 0..5 {
+    //     let _: () = con.zadd(format!("twotts-by:ee"), format!("author:ee:twott:ee twott {i}"), timestamp())
+    //         .await
+    //         .unwrap();
+    //     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    // }
+    //
+    //
+    //
+    // let _: () = con
+    //     .hset(format!("user:ff"), "password", "bb")
+    //     .await
+    //     .expect(format!("Failed to HSET 'user:ff'").as_str());
+    //
+    // for i in 0..5 {
+    //     let _: () = con.zadd(format!("twotts-by:ff"), format!("author:ff:twott:ff twott {i}"), timestamp())
+    //         .await
+    //         .unwrap();
+    //     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    // }
+    //
+    //
+    // let _: () = con
+    //     .hset(format!("user:gg"), "password", "bb")
+    //     .await
+    //     .expect(format!("Failed to HSET 'user:gg'").as_str());
+    //
+    // for i in 0..5 {
+    //     let _: () = con.zadd(format!("twotts-by:gg"), format!("author:gg:twott:gg twott {i}"), timestamp())
+    //         .await
+    //         .unwrap();
+    //     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    // }
 }
 
 fn author_twott_parser(mut line: String) -> (String, String) {

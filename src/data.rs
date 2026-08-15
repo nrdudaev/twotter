@@ -2,17 +2,19 @@ use serde::{Serialize, Deserialize};
 use std::fmt;
 use std::any::Any;
 
-pub const TWOTTS_ON_A_PAGE: usize = 10;
+pub const TWOTTS_ON_A_PAGE: usize = 8;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Request {
-	LoginInfo(String, String),
 	RegistrationInfo(String, String),
+	LoginInfo(String, String),
+	LogOut,
 	Post(String),
 	Feed(usize),	// a usize is a page number
+	Page(String, usize),
 	Subscribe(String),
-	UserList,
 	SubscriptionList,
+	UserList,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -21,7 +23,9 @@ pub enum Response {
 	NumberOfPages(usize),
 	Twott(String, String, f64), // (author, twott, timestamp)
 	Page(Vec<(String, String, f64)>, usize), // the usize is the number of pages
-	SubscriptionList(String),
+	UserList(Vec<String>),
+	SubscriptionList(Vec<String>),
+	SuccessfulLogOut,
 	None,
 }
 
