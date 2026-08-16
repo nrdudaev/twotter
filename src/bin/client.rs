@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 use futures::StreamExt;
 use tokio_util::codec::{LinesCodec, Encoder, Decoder};
 use iced::{
-	widget::{column, Column, row, Row, container, Container, scrollable, checkbox, Text, text, text_input, button},
+	widget::{column, Column, row, Row, container, Container, scrollable, checkbox, Text, text, text_input, button, space},
 	Fill,
 	Alignment,
 	Element,
@@ -278,7 +278,7 @@ impl Twottr {
 				}
 			}
 			Message::MyPage(current_page_num) => {
-				self.write(&Request::Page(self.login_status.clone().unwrap(), 0));
+				self.write(&Request::Page(self.login_status.clone().unwrap(), current_page_num));
 				match self.read().unwrap() {
 					Ok(page_response) => {
 						if let Response::Page(page, num_of_pages) = page_response {
@@ -339,15 +339,50 @@ impl Twottr {
 		};
 
 		let menu: iced::widget::Column<'_, Message, iced::Theme, iced::Renderer> = column![
-			button("Feed")
-				.on_press(Message::Feed),
-			button("My Page")
-				.on_press(Message::MyPage(0)),
-			button("Users")
-				.on_press(Message::Users),
-			button("Log Out")
-				.on_press(Message::LogOut),
+			container(
+				button("Feed")
+					.on_press(Message::Feed)
+					.width(100)
+			).padding(1),
+			container(
+				button("My Page")
+					.on_press(Message::MyPage(0))
+					.width(100)
+			).padding(1),
+			container(
+				button("Users")
+					.on_press(Message::Users)
+					.width(100)
+			).padding(1),
+			space::vertical(),
+			container(
+				button("Log Out")
+					.on_press(Message::LogOut)
+					.width(100)
+					.style(button::danger)
+			).padding(1),
 		];
+
+		let page = self.page.iter().map(|item| {
+			container(
+				container(
+					column![
+						text(format!("{}:", item.0))
+							.size(15),
+						container(
+							text(format!("{}", item.1))
+								.size(18)
+						).padding(5),
+						row![
+							space::horizontal(),
+							text(format!("{}", time_converter(item.2)))
+								.size(13)
+						],
+					].width(600)
+				).padding(4).style(container::rounded_box)
+			).padding(4).into()
+			//text(format!("{}\n{}\n{}", item.0, item.1, time_converter(item.2))).into()
+		});
 
 		match &self.state {
 			State::Connection => {
@@ -417,59 +452,83 @@ impl Twottr {
 			}
 			State::Main => {
 				let mut main_screen: Vec<Element<Message>> = vec![
-					text(format! ("News")).into(),
+					text(format! ("News"))
+						.size(30)
+						.into(),
 				];
 
-				main_screen.extend(
-					self.page.iter().map(|item| {
-						text(format!("{}\n{}\n{}", item.0, item.1, time_converter(item.2))).into()
-					})
-				);
+				main_screen.extend(page);
 
 				let main_screen = Column::from_vec(main_screen);
 
 				row![
 					menu,
-					main_screen,
-					err
+					column![
+						main_screen,
+						err
+					]
 				]
 			}
 			State::Page(name) => {
 				let mut main_screen: Vec<Element<Message>> = vec![
-					text(format! ("{}", name)).into()
+					text(format! ("{}", name))
+						.size(30)
+						.into()
 				];
 
-				main_screen.extend(
-					self.page.iter().map(|item| {
-						text(format!("{}\n{}\n{}", item.0, item.1, time_converter(item.2))).into()
-					})
-				);
+				main_screen.extend(page);
 
-				let name_plus_twotts = Column::from_vec(main_screen);
+				let main_screen = Column::from_vec(main_screen);
 
 				row![
 					menu,
 					column![
-						name_plus_twotts,
+						main_screen,
 						err
 					]
 				]
 			}
 			State::MyPage => {
-				let mut main_screen: Vec<Element<Message>> = vec![
-					text(format! ("{}", self.login_status.as_ref().unwrap())).into(),
-					text_input("Type your twott here:", &self.twott_textbox)
-						.on_input(Message::TwottChanged)
-						.on_submit(Message::TwottSubmitted).into(),
-					button("Post")
-						.on_press(Message::TwottSubmitted).into(),
+				let (first_page_button, previous_page_button) = match self.current_page_num {
+					0 => {
+						(button("<<"), button("<"))
+					}
+					_ => {
+						(button("<<").on_press(Message::MyPage(0)), button("<").on_press(Message::MyPage(self.current_page_num - 1)))
+					}
+				};
+				let (last_page_button, next_page_button) = match self.num_of_pages - self.current_page_num {
+					0 => {
+						(button(">>"), button(">"))
+					}
+					_ => {
+						(button(">>").on_press(Message::MyPage(self.num_of_pages)), button(">").on_press(Message::MyPage(self.current_page_num + 1)))
+					}
+				};
+				let page_buttons = row![
+					first_page_button,
+					previous_page_button,
+					text(format!("{}", self.current_page_num)),
+					next_page_button,
+					last_page_button
 				];
 
-				main_screen.extend(
-					self.page.iter().map(|item| {
-						text(format!("{}\n{}\n{}", item.0, item.1, time_converter(item.2))).into()
-					})
-				);
+				let mut main_screen: Vec<Element<Message>> = vec![
+					text(format! ("{}", self.login_status.as_ref().unwrap()))
+						.size(30)
+						.into(),
+					row![
+						text_input::<'_, _, iced::Theme, iced::Renderer>("Type your twott here:", &self.twott_textbox)
+							.on_input(Message::TwottChanged)
+							.on_submit(Message::TwottSubmitted)
+							.width(200),
+						button("Post")
+							.on_press(Message::TwottSubmitted),
+					].into(),
+					page_buttons.into()
+				];
+
+				main_screen.extend(page);
 
 				let name_plus_twotts = Column::from_vec(main_screen);
 
@@ -485,12 +544,17 @@ impl Twottr {
 				let mut users = column![];
 				for user in &self.user_list {
 					users = users.push(
-						button(user.as_str())
-							.on_press(Message::Page(user.clone(), 0))
+						container(
+							button(user.as_str())
+								.on_press(Message::Page(user.clone(), 0))
+								.style(button::success)
+								.width(200)
+						).padding(1)
 					);
 				}
 				row![
 					menu,
+					iced::widget::Space::new().width(5),
 					column![
 						scrollable(users)
 							.height(Length::Fill),

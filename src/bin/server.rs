@@ -276,13 +276,13 @@ async fn debug_setup(con: &mut MultiplexedConnection) {
         .expect(format!("Failed to HSET 'user:aa'").as_str());
 
     for i in 0..5 {
-        let _: () = con.zadd(format!("twotts-by:debug1"), format!("author:debug1:twott:debug twott {i}"), timestamp())
+        let _: () = con.zadd(format!("twotts-by:Volodin"), format!("author:Volodin:twott:Россия, Путин, Победа"), timestamp())
             .await
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     }
 
-    let _: () = con.lpush("subscription-list:aa", "debug1").await.unwrap();
+    let _: () = con.lpush("subscription-list:aa", "Volodin").await.unwrap();
 
 
     let _: () = con

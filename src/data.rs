@@ -2,7 +2,7 @@ use serde::{Serialize, Deserialize};
 use std::fmt;
 use std::any::Any;
 
-pub const TWOTTS_ON_A_PAGE: usize = 8;
+pub const TWOTTS_ON_A_PAGE: usize = 5;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Request {
