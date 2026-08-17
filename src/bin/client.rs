@@ -363,6 +363,31 @@ impl Twottr {
 			).padding(1),
 		];
 
+		let (first_page_button, previous_page_button) = match self.current_page_num {
+			0 => {
+				(button("<<"), button("<"))
+			}
+			_ => {
+				(button("<<").on_press(Message::MyPage(0)), button("<").on_press(Message::MyPage(self.current_page_num - 1)))
+			}
+		};
+		let (last_page_button, next_page_button) = match self.num_of_pages - self.current_page_num {
+			0 => {
+				(button(">>"), button(">"))
+			}
+			_ => {
+				(button(">>").on_press(Message::MyPage(self.num_of_pages)), button(">").on_press(Message::MyPage(self.current_page_num + 1)))
+			}
+		};
+
+		let page_buttons = row![
+			first_page_button,
+			previous_page_button,
+			text(format!("{}", self.current_page_num + 1)),
+			next_page_button,
+			last_page_button
+		];
+
 		let page = self.page.iter().map(|item| {
 			container(
 				container(
@@ -489,30 +514,6 @@ impl Twottr {
 				]
 			}
 			State::MyPage => {
-				let (first_page_button, previous_page_button) = match self.current_page_num {
-					0 => {
-						(button("<<"), button("<"))
-					}
-					_ => {
-						(button("<<").on_press(Message::MyPage(0)), button("<").on_press(Message::MyPage(self.current_page_num - 1)))
-					}
-				};
-				let (last_page_button, next_page_button) = match self.num_of_pages - self.current_page_num {
-					0 => {
-						(button(">>"), button(">"))
-					}
-					_ => {
-						(button(">>").on_press(Message::MyPage(self.num_of_pages)), button(">").on_press(Message::MyPage(self.current_page_num + 1)))
-					}
-				};
-				let page_buttons = row![
-					first_page_button,
-					previous_page_button,
-					text(format!("{}", self.current_page_num)),
-					next_page_button,
-					last_page_button
-				];
-
 				let mut main_screen: Vec<Element<Message>> = vec![
 					text(format! ("{}", self.login_status.as_ref().unwrap()))
 						.size(30)

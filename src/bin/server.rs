@@ -19,6 +19,7 @@ use serde::{Serialize, Deserialize};
 use tokio_util::codec::{Framed, LinesCodec, Encoder, Decoder};
 use std::time::{UNIX_EPOCH, Duration};
 use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
 #[tokio::main]
 async fn main() {
@@ -126,7 +127,7 @@ async fn database_handler(mut rx_db: mpsc::Receiver<(Request, String, mpsc::Send
             match data {
                 Request::Post(twott) => {
                     println!("twott:{twott}");
-                    let _: () = redis_connection.zadd(format!("twotts-by:{login_status}"), format!("author:{login_status}:twott:{twott}"), timestamp())
+                    let _: () = redis_connection.zadd(format!("twotts-by:{login_status}"), format!("author:{login_status}:uuid:{}:twott:{twott}", Uuid::new_v4()), timestamp())
                         .await
                         .unwrap();
                     tx_db.send((None, Ok(Response::None))).await;
@@ -176,7 +177,7 @@ async fn database_handler(mut rx_db: mpsc::Receiver<(Request, String, mpsc::Send
                     let beginning = std::cmp::min(page_num*TWOTTS_ON_A_PAGE, number_of_twotts_by);
                     let end = std::cmp::min(page_num*TWOTTS_ON_A_PAGE + TWOTTS_ON_A_PAGE - 1, number_of_twotts_by);
                     let unformatted_page: Vec<(String, f64)> = redis_connection.zrevrange_withscores(format!("twotts-by:{}", name), beginning as isize, end as isize).await.unwrap();
-                    let num_of_pages = (number_of_twotts_by as f64 / TWOTTS_ON_A_PAGE as f64).ceil() as usize;
+                    let num_of_pages = (number_of_twotts_by as f64 / TWOTTS_ON_A_PAGE as f64) as usize;
 
                     let mut output_page: Vec<(String, String, f64)> = unformatted_page.iter().map(|item| {
                         let (_, twott) = author_twott_parser(item.0.clone());
@@ -203,7 +204,6 @@ async fn database_handler(mut rx_db: mpsc::Receiver<(Request, String, mpsc::Send
                         let mut key: String = key_result.unwrap();
                         user_list.push(key.split_off("user:".len()));
                     }
-                    println!("--------{:?}", user_list);
                     tx_db.send((None, Ok(Response::UserList(user_list)))).await;
                 }
                 Request::LogOut => {
@@ -276,10 +276,9 @@ async fn debug_setup(con: &mut MultiplexedConnection) {
         .expect(format!("Failed to HSET 'user:aa'").as_str());
 
     for i in 0..5 {
-        let _: () = con.zadd(format!("twotts-by:Volodin"), format!("author:Volodin:twott:Россия, Путин, Победа"), timestamp())
+        let _: () = con.zadd(format!("twotts-by:Volodin"), format!("author:Volodin:uuid:{}:twott:Россия, Путин, Победа", Uuid::new_v4()), timestamp_minus(5*i))
             .await
             .unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     }
 
     let _: () = con.lpush("subscription-list:aa", "Volodin").await.unwrap();
@@ -291,10 +290,9 @@ async fn debug_setup(con: &mut MultiplexedConnection) {
         .expect(format!("Failed to HSET 'user:bb'").as_str());
 
     for i in 0..5 {
-        let _: () = con.zadd(format!("twotts-by:bb"), format!("author:bb:twott:bb twott {i}"), timestamp())
+        let _: () = con.zadd(format!("twotts-by:bb"), format!("author:bb:uuid:{}:twott:bb twott {}", Uuid::new_v4(), 5 - i), timestamp_minus(5*i))
             .await
             .unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     }
 
 
@@ -305,10 +303,9 @@ async fn debug_setup(con: &mut MultiplexedConnection) {
         .expect(format!("Failed to HSET 'user:cc'").as_str());
 
     for i in 0..5 {
-        let _: () = con.zadd(format!("twotts-by:cc"), format!("author:cc:twott:cc twott {i}"), timestamp())
+        let _: () = con.zadd(format!("twotts-by:cc"), format!("author:cc:uuid:{}:twott:cc twott {}", Uuid::new_v4(), 5 - i), timestamp_minus(5*i))
             .await
             .unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     }
 
     // let _: () = con
@@ -367,14 +364,23 @@ async fn debug_setup(con: &mut MultiplexedConnection) {
 fn author_twott_parser(mut line: String) -> (String, String) {
     line = line.split_off("author:".len());
 
-    let author_len = line.find(":twott:").unwrap();
+    let author_len = line.find(":uuid:").unwrap();
     let mut twott = line.split_off(author_len);
-    twott = twott.split_off(":twott:".len());
+    let twott_start_index = twott.find(":twott:").unwrap() + ":twott:".len();
+    twott = twott.split_off(twott_start_index);
     (line, twott)
 }
 
 fn timestamp() -> f64 {
     let now = OffsetDateTime::now_utc();
+    let secs = now.unix_timestamp() as f64;
+    let nanos = now.nanosecond() as f64;
+
+    secs + (nanos / 1000000000.0)
+}
+
+fn timestamp_minus(minus: u64) -> f64 {
+    let now = OffsetDateTime::now_utc() - Duration::from_secs(minus);
     let secs = now.unix_timestamp() as f64;
     let nanos = now.nanosecond() as f64;
 
