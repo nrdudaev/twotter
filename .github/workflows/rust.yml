@@ -27,14 +27,19 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Set up Native Rust
+    - name: Set up Rust Toolchain
       uses: dtolnay/rust-toolchain@stable
 
-    - name: Build Native Mac Binary
+    - name: Build Release Binary
       run: cargo build --release
 
-    - name: Upload Mac Binary
+    - name: Stage Executable for Upload
+      run: |
+        mkdir -p dist
+        find target/release -maxdepth 1 -type f -permalink +111 -not -name "*.d" -exec cp {} dist/ \;
+
+    - name: Upload macOS Binary
       uses: actions/upload-artifact@v4
       with:
         name: twitter-iced-macos
-        path: target/release/twitter-iced
+        path: dist/
